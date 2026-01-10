@@ -20,7 +20,16 @@ SECRET_KEY = 'django-insecure-nj(w2ra0un1p&ypn&fez^x^79ems65mg0+_yuxj6%^%a-=%0(1
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+# ALLOWED_HOSTS = [
+#     'localhost',
+#     '127.0.0.1', 
+#     '0.0.0.0',
+#     '10.0.2.2',  # Android эмулятор
+#     # Добавьте свой локальный IP для реального устройства
+#     # '192.168.1.100',  # замени на свой IP
+# ]
+
+ALLOWED_HOSTS = ['*']  # ТОЛЬКО ДЛЯ РАЗРАБОТКИ! В продакшене убрать!
 
 
 # Application definition
@@ -52,7 +61,36 @@ MIDDLEWARE = [
 ]
 
 CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:8000').split(',')
-CORS_ALLOW_ALL_ORIGINS = DEBUG  # Только для разработки!
+CORS_ALLOW_ALL_ORIGINS = True  # Для разработки
+CORS_ALLOW_CREDENTIALS = True
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://10.0.2.2:8000",  # Android эмулятор
+    "http://localhost",  # Для React/Vue приложений
+]
+
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
 
 ROOT_URLCONF = 'config.urls'
 
