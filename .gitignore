@@ -1,15 +1,31 @@
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
+# Django
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+*.sqlite3
+*.db
+*.log
+
+# Android
+mobile/.gradle/
+mobile/.idea/
+mobile/*.iml
+mobile/local.properties
+mobile/captures/
+mobile/.externalNativeBuild/
+mobile/build/
+mobile/.cxx/
+mobile/*.keystore
+
+# Python
+*.pyc
+*.pyo
+*.pyd
 .DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
