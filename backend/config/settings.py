@@ -20,15 +20,13 @@ SECRET_KEY = 'django-insecure-nj(w2ra0un1p&ypn&fez^x^79ems65mg0+_yuxj6%^%a-=%0(1
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-# ALLOWED_HOSTS = [
-#     'localhost',
-#     '127.0.0.1', 
-#     '0.0.0.0',
-#     '10.0.2.2',  # Android эмулятор
-#     # Добавьте свой локальный IP для реального устройства
-#     # '192.168.1.100',  # замени на свой IP
-# ]
-
+ALLOWED_HOSTS = [
+    'localhost',
+    '127.0.0.1', 
+    '0.0.0.0',
+    '10.0.2.2',  # Android эмулятор
+    '192.168.0.12',  # ТВОЙ РЕАЛЬНЫЙ IP!
+]
 ALLOWED_HOSTS = ['*']  # ТОЛЬКО ДЛЯ РАЗРАБОТКИ! В продакшене убрать!
 
 
@@ -68,9 +66,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:8000",
     "http://127.0.0.1:8000",
     "http://10.0.2.2:8000",  # Android эмулятор
-    "http://localhost",  # Для React/Vue приложений
+    "http://192.168.0.12:8000",  # ИСПРАВЬ НА ЭТОТ IP!
 ]
-
 CORS_ALLOW_METHODS = [
     'DELETE',
     'GET',
