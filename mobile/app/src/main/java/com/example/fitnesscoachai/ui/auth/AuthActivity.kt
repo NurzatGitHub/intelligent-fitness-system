@@ -11,6 +11,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.example.fitnesscoachai.MainActivity
 import com.example.fitnesscoachai.R
+import com.example.fitnesscoachai.ui.auth.SignupActivity
 import kotlinx.coroutines.launch
 
 class AuthActivity : AppCompatActivity() {
@@ -18,21 +19,43 @@ class AuthActivity : AppCompatActivity() {
     private lateinit var etEmail: EditText
     private lateinit var etPassword: EditText
     private lateinit var btnLogin: Button
+    private lateinit var tvSignupLink: android.widget.TextView
 
     private val viewModel: AuthViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Проверяем, авторизован ли пользователь
+        val isLoggedIn = getSharedPreferences("auth", MODE_PRIVATE)
+            .getBoolean("isLoggedIn", false)
+        
+        val accessToken = getSharedPreferences("auth", MODE_PRIVATE)
+            .getString("access_token", null)
+
+        // Если пользователь уже авторизован и есть токен, переходим на главный экран
+        if (isLoggedIn && !accessToken.isNullOrEmpty()) {
+            startActivity(Intent(this, MainActivity::class.java))
+            finish()
+            return
+        }
+        
         setContentView(R.layout.activity_auth)
 
         etEmail = findViewById(R.id.etEmail)
         etPassword = findViewById(R.id.etPassword)
         btnLogin = findViewById(R.id.btnLogin)
+        tvSignupLink = findViewById(R.id.tvSignupLink)
 
         setupObservers()
 
         btnLogin.setOnClickListener {
             login()
+        }
+
+        tvSignupLink.setOnClickListener {
+            startActivity(Intent(this, SignupActivity::class.java))
+            finish()
         }
     }
 
@@ -91,10 +114,11 @@ class AuthActivity : AppCompatActivity() {
 
     private fun saveAuthData(authResponse: com.example.fitnesscoachai.data.models.AuthResponse) {
         // Временное решение - позже заменим на DataStore
+        // Используем commit() для гарантированного сохранения
         getSharedPreferences("auth", MODE_PRIVATE).edit()
             .putString("access_token", authResponse.access)
             .putString("refresh_token", authResponse.refresh)
             .putBoolean("isLoggedIn", true)
-            .apply()
+            .commit() // commit() гарантирует синхронное сохранение
     }
 }

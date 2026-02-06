@@ -1,0 +1,31 @@
+R_DEF: Internal format may change without notice
+local
+color black
+color white
+drawable ic_launcher_background
+drawable ic_launcher_foreground
+id bottomNavigation
+id btnLogin
+id btnLogout
+id container
+id etEmail
+id etPassword
+id nav_camera
+id nav_home
+id nav_profile
+id previewView
+id tvReps
+id tvStatus
+layout activity_auth
+layout activity_camera
+layout activity_main
+layout fragment_home
+layout fragment_profile
+menu bottom_nav_menu
+mipmap ic_launcher
+mipmap ic_launcher_round
+string app_name
+style Base.Theme.FitnessCoachAI
+style Theme.FitnessCoachAI
+xml backup_rules
+xml data_extraction_rules

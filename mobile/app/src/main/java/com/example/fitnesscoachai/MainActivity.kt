@@ -15,10 +15,13 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        val isLoggedIn = getSharedPreferences("auth", MODE_PRIVATE)
-            .getBoolean("isLoggedIn", false)
+        // Проверяем авторизацию более тщательно
+        val prefs = getSharedPreferences("auth", MODE_PRIVATE)
+        val isLoggedIn = prefs.getBoolean("isLoggedIn", false)
+        val accessToken = prefs.getString("access_token", null)
 
-        if (!isLoggedIn) {
+        // Если пользователь не авторизован или нет токена, переходим на экран авторизации
+        if (!isLoggedIn || accessToken.isNullOrEmpty()) {
             startActivity(Intent(this, AuthActivity::class.java))
             finish()
             return

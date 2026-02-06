@@ -1,0 +1,20 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.example.fitnesscoachai.app-mergeDebugResources-45:/values-watch-v20/values-watch-v20.xml",
+            "map": [
+                {
+                    "source": "/Users/tletayazamat/.gradle/caches/8.11.1/transforms/23a8d9c8c55af565ce0ab68af0846f8f/transformed/appcompat-1.7.1/res/values-watch-v20/values-watch-v20.xml",
+                    "from": {
+                        "startLines": "2,5,8",
+                        "startColumns": "4,4,4",
+                        "startOffsets": "55,214,385",
+                        "endLines": "4,7,10",
+                        "endColumns": "12,12,12",
+                        "endOffsets": "209,380,553"
+                    }
+                }
+            ]
+        }
+    ]
+}
