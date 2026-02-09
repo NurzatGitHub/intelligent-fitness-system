@@ -1,0 +1,20 @@
+REAL-TIME PUSHUP MODEL (5 FEATURES)
+==================================================
+Total samples: 55
+Correct: 39
+Incorrect: 16
+Test accuracy: 1.000
+
+FEATURES:
+1. Min elbow angle (normalized 0-1)
+2. Shoulder symmetry (Y difference)
+3. Elbow symmetry (X difference)
+4. Back straightness
+5. Depth ratio (current angle / 90°)
+
+THRESHOLDS FOR REAL-TIME CHECK:
+- Elbow angle < 45°: too wide
+- Shoulder diff > 0.05: uneven
+- Elbow diff > 0.1: asymmetric
+- Back angle > 0.15: arched back
+- Depth ratio > 1.1: not deep enough
