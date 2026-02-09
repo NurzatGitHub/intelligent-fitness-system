@@ -8,7 +8,7 @@ import java.util.concurrent.TimeUnit
 
 object RetrofitClient {
     // ДЛЯ РЕАЛЬНОГО УСТРОЙСТВА:
-    private const val BASE_URL = "http://192.168.0.12:8000/api/"
+    private const val BASE_URL = "http://192.168.0.10:8000/api/"
 
     // ИЛИ просто меняй эту строку:
     // Для эмулятора: "http://10.0.2.2:8000/api/"

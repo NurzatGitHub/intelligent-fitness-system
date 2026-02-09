@@ -25,7 +25,7 @@ ALLOWED_HOSTS = [
     '127.0.0.1', 
     '0.0.0.0',
     '10.0.2.2',  # Android эмулятор
-    '192.168.0.12',  # ТВОЙ РЕАЛЬНЫЙ IP!
+    '192.168.0.10',  # ТВОЙ РЕАЛЬНЫЙ IP!
 ]
 ALLOWED_HOSTS = ['*']  # ТОЛЬКО ДЛЯ РАЗРАБОТКИ! В продакшене убрать!
 
@@ -45,11 +45,13 @@ INSTALLED_APPS = [
     'drf_yasg',
     # Local apps
     'users',
+    'channels',
+    'ai_processing',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    'corsheaders.middleware.CorsMiddleware',  # Важно: должно быть в начале
+    'corsheaders.middleware.CorsMiddleware',  
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -66,7 +68,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:8000",
     "http://127.0.0.1:8000",
     "http://10.0.2.2:8000",  # Android эмулятор
-    "http://192.168.0.12:8000",  # ИСПРАВЬ НА ЭТОТ IP!
+    "http://192.168.0.10:8000",  
 ]
 CORS_ALLOW_METHODS = [
     'DELETE',
@@ -186,4 +188,11 @@ SWAGGER_SETTINGS = {
     },
     'USE_SESSION_AUTH': False,
     'JSON_EDITOR': True,
+}
+
+ASGI_APPLICATION = 'config.asgi.application'
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+    },
 }
