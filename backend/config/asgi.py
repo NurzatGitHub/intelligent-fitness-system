@@ -8,13 +8,11 @@ from channels.auth import AuthMiddlewareStack
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 django.setup()
 
-import ai_processing.routing
+from apps.ai_processing import routing as ai_routing  # ✅ ВАЖНО
 
 application = ProtocolTypeRouter({
     "http": get_asgi_application(),
     "websocket": AuthMiddlewareStack(
-        URLRouter(
-            ai_processing.routing.websocket_urlpatterns
-        )
+        URLRouter(ai_routing.websocket_urlpatterns)
     ),
 })
