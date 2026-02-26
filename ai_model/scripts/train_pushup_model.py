@@ -1,4 +1,3 @@
-# train_pushup_model.py
 import os
 import joblib
 import numpy as np
@@ -6,7 +5,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, confusion_matrix
 
-from dataset_extractor import build_dataset
+from ai_model.scripts.dataset_extractor_pushup import build_dataset
 
 CORRECT_DIR = r"C:\Fitness\intelligent-fitness-system\ai_model\data\pushup_dataset\videos\correct"
 INCORRECT_DIR = r"C:\Fitness\intelligent-fitness-system\ai_model\data\pushup_dataset\videos\incorrect"
