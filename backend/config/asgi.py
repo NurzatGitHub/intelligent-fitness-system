@@ -8,7 +8,7 @@ from channels.auth import AuthMiddlewareStack
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 django.setup()
 
-from apps.ai_processing import routing as ai_routing  # ✅ ВАЖНО
+from apps.ai_processing import routing as ai_routing
 
 application = ProtocolTypeRouter({
     "http": get_asgi_application(),

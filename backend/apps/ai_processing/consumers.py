@@ -120,7 +120,7 @@ def compute_features_7(p):
     elbow_w = dist(L_el, R_el)
     elbow_ratio = elbow_w / shoulder_w
 
-    # hip_offset (как feature_utils)
+    # hip_offset ( feature_utils)
     x1, y1 = chest
     x2, y2 = knee_mid
     xh, yh = hip_mid
