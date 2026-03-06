@@ -4,9 +4,12 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
-
 from .models import CustomUser
-from .serializers import RegisterSerializer, UserSerializer
+from .serializers import RegisterSerializer, UserSerializer, UserUpdateSerializer
+
+from django.conf import settings
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
 
 
 def _tokens_for_user(user):
@@ -20,17 +23,6 @@ def _tokens_for_user(user):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def register(request):
-    """
-    POST /api/users/register/
-    Body: {
-        "email": "...", "password": "...",
-        "age": 25, "height_cm": 175, "weight_kg": 70.0,
-        "fitness_level": "beginner",
-        "goal": "Lose weight",
-        "limitations": "No issues",
-        "frequency": "3-4"
-    }
-    """
     serializer = RegisterSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -51,10 +43,6 @@ def register(request):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def login(request):
-    """
-    POST /api/users/login/
-    Body: { "email": "...", "password": "..." }
-    """
     email = request.data.get("email", "").strip()
     password = request.data.get("password", "")
 
@@ -95,16 +83,23 @@ def login(request):
     )
 
 
-@api_view(["GET"])
+@api_view(["GET", "PATCH"])
 @permission_classes([IsAuthenticated])
 def me(request):
-    """GET /api/users/me/ — возвращает профиль текущего пользователя"""
-    return Response(UserSerializer(request.user).data)
+    """
+    GET  /api/users/me/    — профиль
+    PATCH /api/users/me/   — обновить профиль (age/height/weight/goal/frequency/…)
+    """
+    if request.method == "GET":
+        return Response(UserSerializer(request.user).data)
 
+    serializer = UserUpdateSerializer(request.user, data=request.data, partial=True)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-from django.conf import settings
-from google.oauth2 import id_token
-from google.auth.transport import requests as google_requests
+    user = serializer.save()
+    return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
+
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
@@ -130,10 +125,18 @@ def google_login(request):
     except Exception:
         return Response({"error": "Invalid Google token"}, status=401)
 
+    base_username = email.split("@")[0]
+    username = base_username
+    counter = 1
+    while CustomUser.objects.filter(username=username).exists():
+        # если этот username уже занят другим юзером — делаем уникальным
+        username = f"{base_username}{counter}"
+        counter += 1
+
     user, created = CustomUser.objects.get_or_create(
         email=email,
         defaults={
-            "username": email.split("@")[0],
+            "username": username,
             "first_name": name,
         }
     )

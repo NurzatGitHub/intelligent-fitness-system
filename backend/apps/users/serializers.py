@@ -30,9 +30,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
-        # username = часть email до @
         username = validated_data["email"].split("@")[0]
-        # если такой username уже есть — добавляем цифру
         base = username
         counter = 1
         while CustomUser.objects.filter(username=username).exists():
@@ -50,4 +48,17 @@ class RegisterSerializer(serializers.ModelSerializer):
             goal=validated_data.get("goal", ""),
             limitations=validated_data.get("limitations", ""),
             frequency=validated_data.get("frequency", ""),
+        )
+
+
+class UserUpdateSerializer(serializers.ModelSerializer):
+    """
+    PATCH /api/users/me/
+    Обновляет профиль текущего пользователя.
+    """
+    class Meta:
+        model = CustomUser
+        fields = (
+            "age", "height", "weight",
+            "fitness_level", "goal", "limitations", "frequency",
         )
