@@ -10,14 +10,28 @@ from .ml import get_model
 # 0 le,1 re,2 mouth,3 chest,4 Lsh,5 Rsh,6 Lel,7 Rel,8 Lwr,9 Rwr,
 # 10 Lhip,11 Rhip,12 Lknee,13 Rknee,14 Lank,15 Rank,16 Lfoot,17 Rfoot
 
-VIS_TH = 0.15
-MIN_GOOD = 7
+VIS_TH = 0.12
+MIN_GOOD = 6
 READY_STREAK_NEED = 3
 
-NEEDED_IDS = {3,4,5,6,7,8,9,10,11,12,13,14,15}
+NEEDED_IDS = {3,4,5,6,7,8,9,10,11}
 
-DOWN_T = 95
-UP_T   = 155
+DOWN_T = 100
+UP_T   = 150
+
+# ---- NEW: strict "pushup pose" geometry thresholds (normalized coords) ----
+MIN_BODY_SPAN_X = 0.28     # body should be "long" horizontally (standing is short)
+MAX_BODY_SPAN_Y = 0.25     # body should not be tall vertically (standing is tall)
+MAX_CHEST_HIP_DY = 0.10    # chest and hips should be almost same Y (horizontal torso)
+MAX_SH_WR_X = 0.20         # wrists roughly under shoulders (in X)
+WRIST_BELOW_SH_Y = 0.04    # wrists lower than shoulders
+HIP_BELOW_SH_Y = 0.06      # hips lower than shoulders
+BODYLINE_READY_MIN = 155   # torso line reasonably straight
+
+# For coloring / quality
+BODYLINE_GOOD = 165
+ELBOW_GOOD_MIN = 70
+HIP_OFFSET_GOOD = 0.06     # abs(hip_offset) small => straight line
 
 
 def _is_finite(x: float) -> bool:
@@ -65,6 +79,10 @@ def angle(a, b, c):
 
 
 def ready_check(p):
+    """
+    STRICT check: accept ONLY when the person is really in push-up like pose.
+    Main idea: body must be mostly horizontal and long in X, not tall in Y.
+    """
     chest = (p[3]["x"], p[3]["y"])
     l_sh  = (p[4]["x"], p[4]["y"])
     r_sh  = (p[5]["x"], p[5]["y"])
@@ -78,22 +96,39 @@ def ready_check(p):
     shoulder_mid = ((l_sh[0] + r_sh[0]) / 2.0, (l_sh[1] + r_sh[1]) / 2.0)
     wrist_mid    = ((l_wr[0] + r_wr[0]) / 2.0, (l_wr[1] + r_wr[1]) / 2.0)
 
+    # how "horizontal" the whole body is (chest -> ankle)
+    span_x = abs(chest[0] - ankle_mid[0])
+    span_y = abs(chest[1] - ankle_mid[1])
+
     body_line = angle(chest, hip_mid, knee_mid)
 
-    cond_wrist_below = wrist_mid[1] > shoulder_mid[1] + 0.04
-    cond_hip_below   = hip_mid[1]   > shoulder_mid[1] + 0.06
-    cond_ankle_below = ankle_mid[1] > hip_mid[1] + 0.06
-    cond_horizontal  = abs(chest[1] - hip_mid[1]) < 0.22
-    cond_body_ok     = body_line > 145
+    cond_wrist_below = wrist_mid[1] > shoulder_mid[1] + WRIST_BELOW_SH_Y
+    cond_hip_below   = hip_mid[1]   > shoulder_mid[1] + HIP_BELOW_SH_Y
+
+    # torso should be almost horizontal (chest and hips near same Y)
+    cond_torso_flat  = abs(chest[1] - hip_mid[1]) < MAX_CHEST_HIP_DY
+
+    # wrists roughly under shoulders (avoid random standing arms)
+    cond_wr_under_sh = abs(wrist_mid[0] - shoulder_mid[0]) < MAX_SH_WR_X
+
+    # global body orientation: long in X and not tall in Y
+    cond_body_span_x = span_x > MIN_BODY_SPAN_X
+    cond_body_span_y = span_y < MAX_BODY_SPAN_Y
+
+    cond_body_ok     = body_line >= BODYLINE_READY_MIN
 
     score = sum([
         cond_wrist_below,
         cond_hip_below,
-        cond_ankle_below,
-        cond_horizontal,
+        cond_torso_flat,
+        cond_wr_under_sh,
+        cond_body_span_x,
+        cond_body_span_y,
         cond_body_ok
     ])
-    return (score >= 4), body_line, score
+
+    # need 6/7 to be sure (standing will fail span_x/span_y + torso_flat usually)
+    return (score >= 6), body_line, score
 
 
 def compute_features_7(p):
@@ -120,7 +155,7 @@ def compute_features_7(p):
     elbow_w = dist(L_el, R_el)
     elbow_ratio = elbow_w / shoulder_w
 
-    # hip_offset ( feature_utils)
+    # hip_offset
     x1, y1 = chest
     x2, y2 = knee_mid
     xh, yh = hip_mid
@@ -131,35 +166,60 @@ def compute_features_7(p):
         t = (xh - x1) / (x2 - x1)
         y_on_line = y1 + t * (y2 - y1)
 
-    hip_offset = yh - y_on_line  # negative => hips up
+    hip_offset = yh - y_on_line  # negative => hips up (pike), positive => hips sag
 
     feats = [min_elbow, diff, body_line, elbow_ratio, left_elbow, right_elbow, hip_offset]
-    metrics = {"L": left_elbow, "R": right_elbow, "body_line": body_line}
+    metrics = {
+        "L": left_elbow,
+        "R": right_elbow,
+        "body_line": body_line,
+        "hip_offset": hip_offset
+    }
     return feats, metrics
 
 
 def build_segments(metrics):
+    """
+    Draw a 'square/box' torso instead of triangle.
+    Use:
+      shoulders: 4-5
+      hips: 10-11
+      verticals: 4-10 and 5-11
+    """
     body_line = metrics["body_line"]
+    hip_offset = metrics.get("hip_offset", 0.0)
     L = metrics["L"]
     R = metrics["R"]
 
-    good_body = body_line >= 160
-    good_left = L >= 70
-    good_right = R >= 70
+    good_body = (body_line >= BODYLINE_GOOD) and (abs(hip_offset) <= HIP_OFFSET_GOOD)
+    good_left = L >= ELBOW_GOOD_MIN
+    good_right = R >= ELBOW_GOOD_MIN
+
+    green = "#00FF00"
+    red = "#FF0000"
+
+    arm_left_color = green if good_left else red
+    arm_right_color = green if good_right else red
+    body_color = green if good_body else red
 
     segs = [
-        {"a": 4, "b": 6, "color": "#00FF00" if good_left else "#FF0000"},
-        {"a": 6, "b": 8, "color": "#00FF00" if good_left else "#FF0000"},
-        {"a": 5, "b": 7, "color": "#00FF00" if good_right else "#FF0000"},
-        {"a": 7, "b": 9, "color": "#00FF00" if good_right else "#FF0000"},
-    ]
+        # Arms
+        {"a": 4, "b": 6, "color": arm_left_color},
+        {"a": 6, "b": 8, "color": arm_left_color},
+        {"a": 5, "b": 7, "color": arm_right_color},
+        {"a": 7, "b": 9, "color": arm_right_color},
 
-    body_color = "#00FF00" if good_body else "#FF0000"
-    segs += [
-        {"a": 3, "b": 10, "color": body_color},
-        {"a": 3, "b": 11, "color": body_color},
+        # Torso box
+        {"a": 4, "b": 5, "color": body_color},   # shoulders line
+        {"a": 10, "b": 11, "color": body_color}, # hips line
+        {"a": 4, "b": 10, "color": body_color},  # left side
+        {"a": 5, "b": 11, "color": body_color},  # right side
+
+        # Legs
         {"a": 10, "b": 12, "color": body_color},
         {"a": 11, "b": 13, "color": body_color},
+        {"a": 12, "b": 14, "color": body_color},
+        {"a": 13, "b": 15, "color": body_color},
     ]
     return segs
 
@@ -178,10 +238,9 @@ class AnalyzeConsumer(AsyncWebsocketConsumer):
         self.up_streak = 0
 
         await self.accept()
-        await self.send_json({"type": "connected", "server": "PUSHUP_V7_STRICT"})
+        await self.send_json({"type": "connected", "server": "PUSHUP_V7_STRICT_READY2"})
 
     async def receive(self, text_data=None, bytes_data=None):
-        # Главное: НЕ роняем consumer (иначе Broken pipe на Android)
         try:
             if not text_data:
                 await self.send_json({"type": "error", "message": "text_expected"})
@@ -218,11 +277,12 @@ class AnalyzeConsumer(AsyncWebsocketConsumer):
                     "type": "result",
                     "exercise": "push_up",
                     "status": "SETUP",
-                    "hint": "Примите позицию push-up (покажите ноги + руки)",
+                    "hint": "Покажите полностью тело (ноги + руки)",
                     "segments": []
                 })
                 return
 
+            # smooth points
             self.smooth_buf.append(points)
             smoothed = points
             if len(self.smooth_buf) >= 3:
@@ -244,7 +304,7 @@ class AnalyzeConsumer(AsyncWebsocketConsumer):
                     "type": "result",
                     "exercise": "push_up",
                     "status": "SETUP",
-                    "hint": "Примите позицию push-up",
+                    "hint": "Примите позицию push-up (горизонтально, руки под плечами)",
                     "segments": []
                 })
                 return
@@ -256,6 +316,7 @@ class AnalyzeConsumer(AsyncWebsocketConsumer):
                 await self.send_json({"type": "error", "message": f"feature_mismatch got={X.shape[1]} expected={self.model_n}"})
                 return
 
+            # rep counting via elbow angle thresholds
             min_elbow = feats[0]
             if min_elbow < DOWN_T:
                 self.down_streak += 1
@@ -273,6 +334,7 @@ class AnalyzeConsumer(AsyncWebsocketConsumer):
                 self.up_streak = 0
                 self.rep_count += 1
 
+            # model prediction (overall correctness)
             if hasattr(self.model, "predict_proba"):
                 probs = self.model.predict_proba(X)[0]
                 classes = list(self.model.classes_)
@@ -285,11 +347,13 @@ class AnalyzeConsumer(AsyncWebsocketConsumer):
 
             segs = build_segments(metrics)
 
+            # keep your "lenient incorrect" override
             if confidence is not None and overall == "incorrect" and confidence < 0.75:
                 overall = "correct"
                 segs = [{"a": s["a"], "b": s["b"], "color": "#00FF00"} for s in segs]
 
             await self.send_json({
+                "type": "result",
                 "exercise": "push_up",
                 "status": "ACTIVE",
                 "overall": overall,
