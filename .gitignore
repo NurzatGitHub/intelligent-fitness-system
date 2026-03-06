@@ -14,6 +14,8 @@ venv.bak/
 *.log
 
 # Secrets
+backend/.env
+backend/.env.*
 .env
 .env.*
 *.pem

@@ -25,7 +25,7 @@ MAX_BODY_SPAN_Y = 0.25     # body should not be tall vertically (standing is tal
 MAX_CHEST_HIP_DY = 0.10    # chest and hips should be almost same Y (horizontal torso)
 MAX_SH_WR_X = 0.20         # wrists roughly under shoulders (in X)
 WRIST_BELOW_SH_Y = 0.04    # wrists lower than shoulders
-HIP_BELOW_SH_Y = 0.06      # hips lower than shoulders
+HIP_BELOW_SH_Y = 0.06      # hips lower than shouldersz
 BODYLINE_READY_MIN = 155   # torso line reasonably straight
 
 # For coloring / quality
