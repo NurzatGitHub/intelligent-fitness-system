@@ -17,3 +17,4 @@ psycopg2-binary==2.9.9
 whitenoise
 google-auth
 requests==2.32.3
+google-genai>=1.0.0
