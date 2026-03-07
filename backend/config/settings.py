@@ -18,7 +18,7 @@ DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 
 ALLOWED_HOSTS = env_list(
     "ALLOWED_HOSTS",
-    "localhost,127.0.0.1,10.0.2.2,192.168.0.10,192.168.0.11,192.168.0.12"
+    "localhost,127.0.0.1,.onrender.com"
 )
 
 INSTALLED_APPS = [
