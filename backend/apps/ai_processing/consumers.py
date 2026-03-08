@@ -10,28 +10,19 @@ from .ml import get_model
 # 0 le,1 re,2 mouth,3 chest,4 Lsh,5 Rsh,6 Lel,7 Rel,8 Lwr,9 Rwr,
 # 10 Lhip,11 Rhip,12 Lknee,13 Rknee,14 Lank,15 Rank,16 Lfoot,17 Rfoot
 
-VIS_TH = 0.12
-MIN_GOOD = 6
+VIS_TH = 0.15
+MIN_GOOD = 7
 READY_STREAK_NEED = 3
 
-NEEDED_IDS = {3,4,5,6,7,8,9,10,11}
+# PUSH-UP
+NEEDED_IDS_PUSHUP = {3,4,5,6,7,8,9,10,11,12,13,14,15}
+DOWN_T_PUSHUP = 95
+UP_T_PUSHUP   = 155
 
-DOWN_T = 100
-UP_T   = 150
-
-# ---- NEW: strict "pushup pose" geometry thresholds (normalized coords) ----
-MIN_BODY_SPAN_X = 0.28     # body should be "long" horizontally (standing is short)
-MAX_BODY_SPAN_Y = 0.25     # body should not be tall vertically (standing is tall)
-MAX_CHEST_HIP_DY = 0.10    # chest and hips should be almost same Y (horizontal torso)
-MAX_SH_WR_X = 0.20         # wrists roughly under shoulders (in X)
-WRIST_BELOW_SH_Y = 0.04    # wrists lower than shoulders
-HIP_BELOW_SH_Y = 0.06      # hips lower than shouldersz
-BODYLINE_READY_MIN = 155   # torso line reasonably straight
-
-# For coloring / quality
-BODYLINE_GOOD = 165
-ELBOW_GOOD_MIN = 70
-HIP_OFFSET_GOOD = 0.06     # abs(hip_offset) small => straight line
+# SQUAT
+NEEDED_IDS_SQUAT = {3,4,5,10,11,12,13,14,15}
+DOWN_T_SQUAT = 110
+UP_T_SQUAT   = 165
 
 
 def _is_finite(x: float) -> bool:
@@ -78,11 +69,10 @@ def angle(a, b, c):
     return float(np.degrees(np.arccos(cosv)))
 
 
-def ready_check(p):
-    """
-    STRICT check: accept ONLY when the person is really in push-up like pose.
-    Main idea: body must be mostly horizontal and long in X, not tall in Y.
-    """
+# -----------------------------
+# PUSH-UP logic
+# -----------------------------
+def ready_check_pushup(p):
     chest = (p[3]["x"], p[3]["y"])
     l_sh  = (p[4]["x"], p[4]["y"])
     r_sh  = (p[5]["x"], p[5]["y"])
@@ -96,42 +86,19 @@ def ready_check(p):
     shoulder_mid = ((l_sh[0] + r_sh[0]) / 2.0, (l_sh[1] + r_sh[1]) / 2.0)
     wrist_mid    = ((l_wr[0] + r_wr[0]) / 2.0, (l_wr[1] + r_wr[1]) / 2.0)
 
-    # how "horizontal" the whole body is (chest -> ankle)
-    span_x = abs(chest[0] - ankle_mid[0])
-    span_y = abs(chest[1] - ankle_mid[1])
-
     body_line = angle(chest, hip_mid, knee_mid)
 
-    cond_wrist_below = wrist_mid[1] > shoulder_mid[1] + WRIST_BELOW_SH_Y
-    cond_hip_below   = hip_mid[1]   > shoulder_mid[1] + HIP_BELOW_SH_Y
+    cond_wrist_below = wrist_mid[1] > shoulder_mid[1] + 0.04
+    cond_hip_below   = hip_mid[1]   > shoulder_mid[1] + 0.06
+    cond_ankle_below = ankle_mid[1] > hip_mid[1] + 0.06
+    cond_horizontal  = abs(chest[1] - hip_mid[1]) < 0.22
+    cond_body_ok     = body_line > 145
 
-    # torso should be almost horizontal (chest and hips near same Y)
-    cond_torso_flat  = abs(chest[1] - hip_mid[1]) < MAX_CHEST_HIP_DY
-
-    # wrists roughly under shoulders (avoid random standing arms)
-    cond_wr_under_sh = abs(wrist_mid[0] - shoulder_mid[0]) < MAX_SH_WR_X
-
-    # global body orientation: long in X and not tall in Y
-    cond_body_span_x = span_x > MIN_BODY_SPAN_X
-    cond_body_span_y = span_y < MAX_BODY_SPAN_Y
-
-    cond_body_ok     = body_line >= BODYLINE_READY_MIN
-
-    score = sum([
-        cond_wrist_below,
-        cond_hip_below,
-        cond_torso_flat,
-        cond_wr_under_sh,
-        cond_body_span_x,
-        cond_body_span_y,
-        cond_body_ok
-    ])
-
-    # need 6/7 to be sure (standing will fail span_x/span_y + torso_flat usually)
-    return (score >= 6), body_line, score
+    score = sum([cond_wrist_below, cond_hip_below, cond_ankle_below, cond_horizontal, cond_body_ok])
+    return (score >= 4), body_line, score
 
 
-def compute_features_7(p):
+def compute_features_7_pushup(p):
     L_sh = (p[4]["x"], p[4]["y"])
     R_sh = (p[5]["x"], p[5]["y"])
     L_el = (p[6]["x"], p[6]["y"])
@@ -155,7 +122,6 @@ def compute_features_7(p):
     elbow_w = dist(L_el, R_el)
     elbow_ratio = elbow_w / shoulder_w
 
-    # hip_offset
     x1, y1 = chest
     x2, y2 = knee_mid
     xh, yh = hip_mid
@@ -166,69 +132,163 @@ def compute_features_7(p):
         t = (xh - x1) / (x2 - x1)
         y_on_line = y1 + t * (y2 - y1)
 
-    hip_offset = yh - y_on_line  # negative => hips up (pike), positive => hips sag
+    hip_offset = yh - y_on_line  # negative => hips up
 
     feats = [min_elbow, diff, body_line, elbow_ratio, left_elbow, right_elbow, hip_offset]
+    metrics = {"L": left_elbow, "R": right_elbow, "body_line": body_line}
+    return feats, metrics
+
+
+def build_segments_pushup(metrics):
+    body_line = metrics["body_line"]
+    L = metrics["L"]
+    R = metrics["R"]
+
+    good_body = body_line >= 160
+    good_left = L >= 70
+    good_right = R >= 70
+
+    segs = [
+        {"a": 4, "b": 6, "color": "#00FF00" if good_left else "#FF0000"},
+        {"a": 6, "b": 8, "color": "#00FF00" if good_left else "#FF0000"},
+        {"a": 5, "b": 7, "color": "#00FF00" if good_right else "#FF0000"},
+        {"a": 7, "b": 9, "color": "#00FF00" if good_right else "#FF0000"},
+    ]
+
+    body_color = "#00FF00" if good_body else "#FF0000"
+    segs += [
+        {"a": 3, "b": 10, "color": body_color},
+        {"a": 3, "b": 11, "color": body_color},
+        {"a": 10, "b": 12, "color": body_color},
+        {"a": 11, "b": 13, "color": body_color},
+    ]
+    return segs
+
+
+# -----------------------------
+# SQUAT logic (8 features)
+# -----------------------------
+def ready_check_squat(p):
+    hip_mid   = mid(p[10], p[11])
+    knee_mid  = mid(p[12], p[13])
+    ankle_mid = mid(p[14], p[15])
+
+    l_sh = (p[4]["x"], p[4]["y"])
+    r_sh = (p[5]["x"], p[5]["y"])
+    shoulder_mid = ((l_sh[0] + r_sh[0]) / 2.0, (l_sh[1] + r_sh[1]) / 2.0)
+
+    # плечи выше таза, таз выше колен, колени выше щиколоток
+    cond_order = (shoulder_mid[1] < hip_mid[1] < knee_mid[1] < ankle_mid[1])
+
+    # корпус более-менее вертикально: плечи и таз близко по X
+    cond_upright = abs(shoulder_mid[0] - hip_mid[0]) < 0.20
+
+    score = sum([cond_order, cond_upright])
+    return (score >= 2), score
+
+
+def compute_features_8_squat(p):
+    """
+    8 фич под squat_model.pkl (expected=8):
+      0 min_knee_angle
+      1 left_knee_angle
+      2 right_knee_angle
+      3 knee_diff
+      4 min_hip_angle
+      5 knee_cave_ratio
+      6 depth_ratio
+      7 trunk_angle
+    """
+    chest = (p[3]["x"], p[3]["y"])
+    L_sh  = (p[4]["x"], p[4]["y"])
+    R_sh  = (p[5]["x"], p[5]["y"])
+
+    L_hip = (p[10]["x"], p[10]["y"])
+    R_hip = (p[11]["x"], p[11]["y"])
+    L_knee = (p[12]["x"], p[12]["y"])
+    R_knee = (p[13]["x"], p[13]["y"])
+    L_ank = (p[14]["x"], p[14]["y"])
+    R_ank = (p[15]["x"], p[15]["y"])
+
+    pelvis = ((L_hip[0] + R_hip[0]) / 2.0, (L_hip[1] + R_hip[1]) / 2.0)
+
+    # knee angles: hip-knee-ankle
+    left_knee_angle  = angle(L_hip, L_knee, L_ank)
+    right_knee_angle = angle(R_hip, R_knee, R_ank)
+    min_knee_angle   = min(left_knee_angle, right_knee_angle)
+    knee_diff        = abs(left_knee_angle - right_knee_angle)
+
+    # hip angles: shoulder-hip-knee
+    left_hip_angle  = angle(L_sh, L_hip, L_knee)
+    right_hip_angle = angle(R_sh, R_hip, R_knee)
+    min_hip_angle   = min(left_hip_angle, right_hip_angle)
+
+    # knee cave ratio (knee width / hip width)
+    hip_w  = dist(L_hip, R_hip) + 1e-6
+    knee_w = dist(L_knee, R_knee)
+    knee_cave_ratio = knee_w / hip_w
+
+    # depth ratio: hip_mid_y / ankle_mid_y
+    hip_mid_y = pelvis[1]
+    ankle_mid_y = ((L_ank[1] + R_ank[1]) / 2.0) + 1e-6
+    depth_ratio = hip_mid_y / ankle_mid_y
+
+    # trunk angle: угол корпуса от вертикали
+    torso_vec = (pelvis[0] - chest[0], pelvis[1] - chest[1])
+    tv_norm = (torso_vec[0] ** 2 + torso_vec[1] ** 2) ** 0.5 + 1e-6
+    cosang = torso_vec[1] / tv_norm  # (0,1) вертикаль
+    cosang = max(-1.0, min(1.0, cosang))
+    trunk_angle = float(np.degrees(np.arccos(cosang)))
+
+    feats = [
+        min_knee_angle,
+        left_knee_angle,
+        right_knee_angle,
+        knee_diff,
+        min_hip_angle,
+        knee_cave_ratio,
+        depth_ratio,
+        trunk_angle,
+    ]
+
     metrics = {
-        "L": left_elbow,
-        "R": right_elbow,
-        "body_line": body_line,
-        "hip_offset": hip_offset
+        "min_knee": min_knee_angle,
+        "trunk": trunk_angle,
+        "knee_cave": knee_cave_ratio,
+        "depth": depth_ratio,
     }
     return feats, metrics
 
 
-def build_segments(metrics):
-    """
-    Draw a 'square/box' torso instead of triangle.
-    Use:
-      shoulders: 4-5
-      hips: 10-11
-      verticals: 4-10 and 5-11
-    """
-    body_line = metrics["body_line"]
-    hip_offset = metrics.get("hip_offset", 0.0)
-    L = metrics["L"]
-    R = metrics["R"]
+def build_segments_squat(metrics):
+    good_knee = metrics["min_knee"] >= 80
+    good_torso = metrics["trunk"] >= 155
 
-    good_body = (body_line >= BODYLINE_GOOD) and (abs(hip_offset) <= HIP_OFFSET_GOOD)
-    good_left = L >= ELBOW_GOOD_MIN
-    good_right = R >= ELBOW_GOOD_MIN
-
-    green = "#00FF00"
-    red = "#FF0000"
-
-    arm_left_color = green if good_left else red
-    arm_right_color = green if good_right else red
-    body_color = green if good_body else red
+    knee_color = "#00FF00" if good_knee else "#FF0000"
+    torso_color = "#00FF00" if good_torso else "#FF0000"
 
     segs = [
-        # Arms
-        {"a": 4, "b": 6, "color": arm_left_color},
-        {"a": 6, "b": 8, "color": arm_left_color},
-        {"a": 5, "b": 7, "color": arm_right_color},
-        {"a": 7, "b": 9, "color": arm_right_color},
-
-        # Torso box
-        {"a": 4, "b": 5, "color": body_color},   # shoulders line
-        {"a": 10, "b": 11, "color": body_color}, # hips line
-        {"a": 4, "b": 10, "color": body_color},  # left side
-        {"a": 5, "b": 11, "color": body_color},  # right side
-
-        # Legs
-        {"a": 10, "b": 12, "color": body_color},
-        {"a": 11, "b": 13, "color": body_color},
-        {"a": 12, "b": 14, "color": body_color},
-        {"a": 13, "b": 15, "color": body_color},
+        {"a": 10, "b": 12, "color": knee_color},
+        {"a": 12, "b": 14, "color": knee_color},
+        {"a": 11, "b": 13, "color": knee_color},
+        {"a": 13, "b": 15, "color": knee_color},
+        {"a": 4, "b": 10, "color": torso_color},
+        {"a": 5, "b": 11, "color": torso_color},
     ]
     return segs
 
 
 class AnalyzeConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        self.model = get_model()
-        self.model_n = int(getattr(self.model, "n_features_in_", 7))
+        # load models
+        self.pushup_model = get_model("push_up")
+        self.pushup_n = int(getattr(self.pushup_model, "n_features_in_", 7))
 
+        # ✅ squat_model.pkl = Pipeline(StandardScaler + RandomForestClassifier) (expected=8)
+        self.squat_model = get_model("squat")
+        self.squat_n = int(getattr(self.squat_model, "n_features_in_", 8))
+
+        # state
         self.ready_streak = 0
         self.smooth_buf = deque(maxlen=5)
 
@@ -238,7 +298,7 @@ class AnalyzeConsumer(AsyncWebsocketConsumer):
         self.up_streak = 0
 
         await self.accept()
-        await self.send_json({"type": "connected", "server": "PUSHUP_V7_STRICT_READY2"})
+        await self.send_json({"type": "connected", "server": "MULTI_EX_V2"})
 
     async def receive(self, text_data=None, bytes_data=None):
         try:
@@ -256,7 +316,8 @@ class AnalyzeConsumer(AsyncWebsocketConsumer):
                 await self.send_json({"type": "pong"})
                 return
 
-            if msg.get("exercise") != "push_up":
+            exercise = msg.get("exercise")
+            if exercise not in ("push_up", "squat"):
                 await self.send_json({"type": "error", "message": "bad_exercise"})
                 return
 
@@ -267,7 +328,8 @@ class AnalyzeConsumer(AsyncWebsocketConsumer):
 
             points = sanitize_points(points)
 
-            good = sum(1 for i in NEEDED_IDS if float(points[i].get("v", 0.0)) >= VIS_TH)
+            needed = NEEDED_IDS_PUSHUP if exercise == "push_up" else NEEDED_IDS_SQUAT
+            good = sum(1 for i in needed if float(points[i].get("v", 0.0)) >= VIS_TH)
             if good < MIN_GOOD:
                 self.ready_streak = 0
                 self.down_streak = 0
@@ -275,14 +337,14 @@ class AnalyzeConsumer(AsyncWebsocketConsumer):
                 self.phase = "UP"
                 await self.send_json({
                     "type": "result",
-                    "exercise": "push_up",
+                    "exercise": exercise,
                     "status": "SETUP",
-                    "hint": "Покажите полностью тело (ноги + руки)",
+                    "hint": "Станьте полностью в кадр (покажите ноги и корпус)",
                     "segments": []
                 })
                 return
 
-            # smooth points
+            # smooth
             self.smooth_buf.append(points)
             smoothed = points
             if len(self.smooth_buf) >= 3:
@@ -293,7 +355,12 @@ class AnalyzeConsumer(AsyncWebsocketConsumer):
                     vs = [f[idx].get("v", 0.0) for f in self.smooth_buf]
                     smoothed.append({"x": float(np.mean(xs)), "y": float(np.mean(ys)), "v": float(np.mean(vs))})
 
-            is_ready, body_line, score = ready_check(smoothed)
+            # ready
+            if exercise == "push_up":
+                is_ready, body_line, score = ready_check_pushup(smoothed)
+            else:
+                is_ready, score = ready_check_squat(smoothed)
+
             self.ready_streak = self.ready_streak + 1 if is_ready else 0
 
             if self.ready_streak < READY_STREAK_NEED:
@@ -302,59 +369,95 @@ class AnalyzeConsumer(AsyncWebsocketConsumer):
                 self.up_streak = 0
                 await self.send_json({
                     "type": "result",
-                    "exercise": "push_up",
+                    "exercise": exercise,
                     "status": "SETUP",
-                    "hint": "Примите позицию push-up (горизонтально, руки под плечами)",
+                    "hint": "Примите исходную позицию",
                     "segments": []
                 })
                 return
 
-            feats, metrics = compute_features_7(smoothed)
-            X = np.array(feats, dtype=np.float32).reshape(1, -1)
+            # features + model
+            if exercise == "push_up":
+                feats, metrics = compute_features_7_pushup(smoothed)
+                X = np.array(feats, dtype=np.float32).reshape(1, -1)
+                if X.shape[1] != self.pushup_n:
+                    await self.send_json({"type": "error", "message": f"feature_mismatch got={X.shape[1]} expected={self.pushup_n}"})
+                    return
 
-            if X.shape[1] != self.model_n:
-                await self.send_json({"type": "error", "message": f"feature_mismatch got={X.shape[1]} expected={self.model_n}"})
-                return
+                # reps by elbow
+                min_elbow = feats[0]
+                if min_elbow < DOWN_T_PUSHUP:
+                    self.down_streak += 1
+                    self.up_streak = 0
+                elif min_elbow > UP_T_PUSHUP:
+                    self.up_streak += 1
+                    self.down_streak = 0
 
-            # rep counting via elbow angle thresholds
-            min_elbow = feats[0]
-            if min_elbow < DOWN_T:
-                self.down_streak += 1
-                self.up_streak = 0
-            elif min_elbow > UP_T:
-                self.up_streak += 1
-                self.down_streak = 0
+                if self.phase == "UP" and self.down_streak >= 2:
+                    self.phase = "DOWN"
+                    self.down_streak = 0
 
-            if self.phase == "UP" and self.down_streak >= 2:
-                self.phase = "DOWN"
-                self.down_streak = 0
+                if self.phase == "DOWN" and self.up_streak >= 2:
+                    self.phase = "UP"
+                    self.up_streak = 0
+                    self.rep_count += 1
 
-            if self.phase == "DOWN" and self.up_streak >= 2:
-                self.phase = "UP"
-                self.up_streak = 0
-                self.rep_count += 1
+                if hasattr(self.pushup_model, "predict_proba"):
+                    probs = self.pushup_model.predict_proba(X)[0]
+                    classes = list(self.pushup_model.classes_)
+                    best_i = int(np.argmax(probs))
+                    overall = str(classes[best_i])
+                    confidence = float(probs[best_i])
+                else:
+                    overall = str(self.pushup_model.predict(X)[0])
+                    confidence = None
 
-            # model prediction (overall correctness)
-            if hasattr(self.model, "predict_proba"):
-                probs = self.model.predict_proba(X)[0]
-                classes = list(self.model.classes_)
-                best_i = int(np.argmax(probs))
-                overall = str(classes[best_i])
-                confidence = float(probs[best_i])
+                segs = build_segments_pushup(metrics)
+
+                if confidence is not None and overall == "incorrect" and confidence < 0.75:
+                    overall = "correct"
+                    segs = [{"a": s["a"], "b": s["b"], "color": "#00FF00"} for s in segs]
+
             else:
-                overall = str(self.model.predict(X)[0])
-                confidence = None
+                feats, metrics = compute_features_8_squat(smoothed)
+                X = np.array(feats, dtype=np.float32).reshape(1, -1)
+                if X.shape[1] != self.squat_n:
+                    await self.send_json({"type": "error", "message": f"feature_mismatch got={X.shape[1]} expected={self.squat_n}"})
+                    return
 
-            segs = build_segments(metrics)
+                # reps by knee
+                min_knee = feats[0]  # min_knee_angle
+                if min_knee < DOWN_T_SQUAT:
+                    self.down_streak += 1
+                    self.up_streak = 0
+                elif min_knee > UP_T_SQUAT:
+                    self.up_streak += 1
+                    self.down_streak = 0
 
-            # keep your "lenient incorrect" override
-            if confidence is not None and overall == "incorrect" and confidence < 0.75:
-                overall = "correct"
-                segs = [{"a": s["a"], "b": s["b"], "color": "#00FF00"} for s in segs]
+                if self.phase == "UP" and self.down_streak >= 2:
+                    self.phase = "DOWN"
+                    self.down_streak = 0
+
+                if self.phase == "DOWN" and self.up_streak >= 2:
+                    self.phase = "UP"
+                    self.up_streak = 0
+                    self.rep_count += 1
+
+                # ✅ RandomForest / Pipeline: predict_proba
+                if hasattr(self.squat_model, "predict_proba"):
+                    probs = self.squat_model.predict_proba(X)[0]
+                    classes = list(self.squat_model.classes_)  # Pipeline обычно прокидывает
+                    best_i = int(np.argmax(probs))
+                    overall = str(classes[best_i])
+                    confidence = float(probs[best_i])
+                else:
+                    overall = str(self.squat_model.predict(X)[0])
+                    confidence = None
+
+                segs = build_segments_squat(metrics)
 
             await self.send_json({
-                "type": "result",
-                "exercise": "push_up",
+                "exercise": exercise,
                 "status": "ACTIVE",
                 "overall": overall,
                 "confidence": confidence,
