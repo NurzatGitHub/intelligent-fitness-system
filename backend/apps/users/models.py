@@ -17,10 +17,15 @@ class CustomUser(AbstractUser):
         ],
         default="beginner",
     )
-    # Новые поля из онбординга
+
     goal = models.CharField(max_length=100, blank=True, default="")
     limitations = models.CharField(max_length=200, blank=True, default="")
     frequency = models.CharField(max_length=20, blank=True, default="")
+
+    workout_duration = models.CharField(max_length=20, blank=True, default="")
+    workout_place = models.CharField(max_length=30, blank=True, default="")
+    endurance_level = models.CharField(max_length=20, blank=True, default="")
+    gender = models.CharField(max_length=20, blank=True, default="")
 
     profile_picture = models.ImageField(upload_to="profile_pics/", null=True, blank=True)
 

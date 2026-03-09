@@ -86,10 +86,6 @@ def login(request):
 @api_view(["GET", "PATCH"])
 @permission_classes([IsAuthenticated])
 def me(request):
-    """
-    GET  /api/users/me/    — профиль
-    PATCH /api/users/me/   — обновить профиль (age/height/weight/goal/frequency/…)
-    """
     if request.method == "GET":
         return Response(UserSerializer(request.user).data)
 
@@ -104,10 +100,6 @@ def me(request):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def google_login(request):
-    """
-    POST /api/users/google/
-    Body: { "id_token": "..." }
-    """
     token = request.data.get("id_token")
     if not token:
         return Response({"error": "id_token is required"}, status=400)
@@ -129,7 +121,6 @@ def google_login(request):
     username = base_username
     counter = 1
     while CustomUser.objects.filter(username=username).exists():
-        # если этот username уже занят другим юзером — делаем уникальным
         username = f"{base_username}{counter}"
         counter += 1
 

@@ -9,6 +9,7 @@ class UserSerializer(serializers.ModelSerializer):
             "id", "email", "username",
             "age", "weight", "height", "fitness_level",
             "goal", "limitations", "frequency",
+            "workout_duration", "workout_place", "endurance_level", "gender",
         )
         read_only_fields = ("id",)
 
@@ -22,6 +23,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             "email", "password",
             "age", "height", "weight",
             "fitness_level", "goal", "limitations", "frequency",
+            "workout_duration", "workout_place", "endurance_level", "gender",
         )
 
     def validate_email(self, value):
@@ -48,17 +50,18 @@ class RegisterSerializer(serializers.ModelSerializer):
             goal=validated_data.get("goal", ""),
             limitations=validated_data.get("limitations", ""),
             frequency=validated_data.get("frequency", ""),
+            workout_duration=validated_data.get("workout_duration", ""),
+            workout_place=validated_data.get("workout_place", ""),
+            endurance_level=validated_data.get("endurance_level", ""),
+            gender=validated_data.get("gender", ""),
         )
 
 
 class UserUpdateSerializer(serializers.ModelSerializer):
-    """
-    PATCH /api/users/me/
-    Обновляет профиль текущего пользователя.
-    """
     class Meta:
         model = CustomUser
         fields = (
             "age", "height", "weight",
             "fitness_level", "goal", "limitations", "frequency",
+            "workout_duration", "workout_place", "endurance_level", "gender",
         )

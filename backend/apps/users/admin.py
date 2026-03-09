@@ -8,20 +8,19 @@ from .models import CustomUser
 class CustomUserAdmin(UserAdmin):
     model = CustomUser
 
-    # ======= КРАСИВЫЕ КОЛОНКИ =======
-
     def fitness_badge(self, obj):
         colors = {
-            "Beginner": "#22c55e",
-            "Intermediate": "#f59e0b",
-            "Advanced": "#ef4444",
+            "beginner": "#22c55e",
+            "intermediate": "#f59e0b",
+            "advanced": "#ef4444",
         }
+        label = (obj.fitness_level or "").capitalize()
         color = colors.get(obj.fitness_level, "#6b7280")
         return format_html(
             '<span style="padding:4px 8px;border-radius:12px;'
             'background:{};color:white;font-weight:600;">{}</span>',
             color,
-            obj.fitness_level
+            label or "-"
         )
     fitness_badge.short_description = "Fitness level"
 
@@ -42,8 +41,6 @@ class CustomUserAdmin(UserAdmin):
         return "-"
     avatar_preview.short_description = "Avatar"
 
-    # ======= СПИСОК =======
-
     list_display = (
         "id",
         "avatar_preview",
@@ -54,12 +51,24 @@ class CustomUserAdmin(UserAdmin):
         "fitness_badge",
         "goal",
         "frequency",
+        "gender",
+        "workout_place",
+        "endurance_level",
+        "workout_duration",
         "is_staff",
         "is_active",
     )
 
-    list_filter = ("fitness_level", "is_staff", "is_active")
-    search_fields = ("email", "username")
+    list_filter = (
+        "fitness_level",
+        "gender",
+        "workout_place",
+        "endurance_level",
+        "is_staff",
+        "is_active",
+    )
+
+    search_fields = ("email", "username", "goal", "limitations")
     ordering = ("-id",)
 
     readonly_fields = ("id", "last_login", "date_joined", "avatar_preview")
@@ -74,6 +83,10 @@ class CustomUserAdmin(UserAdmin):
                 "goal",
                 "limitations",
                 "frequency",
+                "gender",
+                "workout_place",
+                "endurance_level",
+                "workout_duration",
                 "profile_picture",
                 "avatar_preview",
             )
