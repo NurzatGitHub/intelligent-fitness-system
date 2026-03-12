@@ -11,6 +11,8 @@ from django.conf import settings
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 
+from assistant.models import WeeklyPlan
+
 
 def _tokens_for_user(user):
     refresh = RefreshToken.for_user(user)
@@ -94,6 +96,9 @@ def me(request):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     user = serializer.save()
+
+    WeeklyPlan.objects.filter(user=user).delete()
+
     return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
 
 

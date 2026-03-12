@@ -1,4 +1,6 @@
+import json
 import os
+from datetime import datetime
 
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import IsAuthenticated
@@ -8,9 +10,38 @@ from rest_framework.throttling import UserRateThrottle
 
 from google import genai
 
+from .models import WeeklyPlan
+
 
 class AssistantChatThrottle(UserRateThrottle):
     scope = "assistant_chat"
+
+
+DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def _safe(value, default="not specified"):
+    if value is None:
+        return default
+    text = str(value).strip()
+    return text if text else default
+
+
+def build_user_profile_block(user) -> str:
+    return (
+        f"- age: {_safe(getattr(user, 'age', None))}\n"
+        f"- height cm: {_safe(getattr(user, 'height', None))}\n"
+        f"- weight kg: {_safe(getattr(user, 'weight', None))}\n"
+        f"- gender: {_safe(getattr(user, 'gender', ''))}\n"
+        f"- fitness level: {_safe(getattr(user, 'fitness_level', ''))}\n"
+        f"- goal: {_safe(getattr(user, 'goal', ''))}\n"
+        f"- limitations: {_safe(getattr(user, 'limitations', ''))}\n"
+        f"- training frequency per week: {_safe(getattr(user, 'frequency', ''))}\n"
+        f"- workout duration preference: {_safe(getattr(user, 'workout_duration', ''))}\n"
+        f"- workout place: {_safe(getattr(user, 'workout_place', ''))}\n"
+        f"- endurance level: {_safe(getattr(user, 'endurance_level', ''))}\n"
+    )
 
 
 def build_system_prompt(user) -> str:
@@ -20,12 +51,137 @@ def build_system_prompt(user) -> str:
         "Use the user's fitness profile to personalize the answer. "
         "If the user mentions pain or injury, advise them to stop and consult a professional. "
         "Do not give medical diagnosis.\n\n"
-        f"User profile:\n"
-        f"- fitness level: {getattr(user, 'fitness_level', '')}\n"
-        f"- goal: {getattr(user, 'goal', '')}\n"
-        f"- limitations: {getattr(user, 'limitations', '')}\n"
-        f"- training frequency per week: {getattr(user, 'frequency', '')}\n"
+        "User profile:\n"
+        f"{build_user_profile_block(user)}"
     )
+
+
+def build_weekly_plan_prompt(user) -> str:
+    return (
+        "You are a fitness coach inside a mobile app.\n"
+        "Generate a practical weekly training plan personalized to the user's profile.\n"
+        "Respect injuries, limitations, fitness level, training frequency, workout duration, workout place, and endurance level.\n"
+        "Do not give medical diagnosis.\n"
+        "If limitations suggest caution, make the plan safer and lighter.\n\n"
+        "Return ONLY valid JSON. No markdown. No explanation. No code fences.\n\n"
+        "Required JSON format:\n"
+        "{\n"
+        '  "title": "AI Weekly Plan",\n'
+        '  "goal_summary": "short 1-sentence summary",\n'
+        '  "days": [\n'
+        '    {"day_key":"mon","label":"Mon","type":"workout","title":"Chest + Triceps","duration_min":45,"note":"short tip"},\n'
+        '    {"day_key":"tue","label":"Tue","type":"rest","title":"Recovery","duration_min":20,"note":"short tip"},\n'
+        '    {"day_key":"wed","label":"Wed","type":"workout","title":"Back + Biceps","duration_min":45,"note":"short tip"},\n'
+        '    {"day_key":"thu","label":"Thu","type":"rest","title":"Mobility","duration_min":15,"note":"short tip"},\n'
+        '    {"day_key":"fri","label":"Fri","type":"workout","title":"Legs + Core","duration_min":50,"note":"short tip"},\n'
+        '    {"day_key":"sat","label":"Sat","type":"workout","title":"Full Body","duration_min":40,"note":"short tip"},\n'
+        '    {"day_key":"sun","label":"Sun","type":"rest","title":"Recovery","duration_min":20,"note":"short tip"}\n'
+        "  ],\n"
+        '  "today_tip": "short helpful tip"\n'
+        "}\n\n"
+        "Rules:\n"
+        "- exactly 7 days in this order: Mon, Tue, Wed, Thu, Fri, Sat, Sun\n"
+        "- type must be either workout or rest\n"
+        "- duration_min must be an integer\n"
+        "- title must be very short\n"
+        "- note must be very short\n"
+        "- goal_summary must be very short\n"
+        "- keep the plan realistic for a mobile fitness app\n\n"
+        "User profile:\n"
+        f"{build_user_profile_block(user)}"
+    )
+
+
+def _extract_json_object(text: str) -> dict:
+    raw = (text or "").strip()
+
+    if raw.startswith("```"):
+        raw = raw.replace("```json", "").replace("```", "").strip()
+
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError("JSON object not found in Gemini response")
+
+    raw = raw[start:end + 1]
+    return json.loads(raw)
+
+
+def _normalize_day(day: dict, index: int) -> dict:
+    day_key = DAY_KEYS[index]
+    label = DAY_LABELS[index]
+
+    day_type = str(day.get("type", "rest")).strip().lower()
+    if day_type not in ("workout", "rest"):
+        day_type = "rest"
+
+    title = str(day.get("title", "")).strip() or ("Workout" if day_type == "workout" else "Recovery")
+    note = str(day.get("note", "")).strip() or "Stay consistent"
+
+    try:
+        duration_min = int(day.get("duration_min", 20))
+    except Exception:
+        duration_min = 20
+
+    duration_min = max(5, min(duration_min, 180))
+
+    return {
+        "day_key": day_key,
+        "label": label,
+        "type": day_type,
+        "title": title[:60],
+        "duration_min": duration_min,
+        "note": note[:120],
+    }
+
+
+def _normalize_plan(data: dict) -> dict:
+    if not isinstance(data, dict):
+        raise ValueError("Weekly plan response is not a JSON object")
+
+    raw_days = data.get("days")
+    if not isinstance(raw_days, list) or len(raw_days) != 7:
+        raise ValueError("Weekly plan must contain exactly 7 days")
+
+    normalized_days = [_normalize_day(raw_days[i], i) for i in range(7)]
+
+    title = str(data.get("title", "AI Weekly Plan")).strip() or "AI Weekly Plan"
+    goal_summary = str(data.get("goal_summary", "")).strip() or "Personalized weekly training plan"
+    today_tip = str(data.get("today_tip", "")).strip() or "Focus on form and consistency"
+
+    return {
+        "title": title[:80],
+        "goal_summary": goal_summary[:180],
+        "days": normalized_days,
+        "today_tip": today_tip[:180],
+        "generated_at": datetime.now().isoformat(),
+    }
+
+
+def _generate_weekly_plan_for_user(user) -> dict:
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is not set")
+
+    model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+    client = genai.Client(api_key=api_key)
+    prompt = build_weekly_plan_prompt(user)
+
+    response = client.models.generate_content(
+        model=model_name,
+        contents=prompt,
+    )
+
+    data = _extract_json_object(response.text or "")
+    plan = _normalize_plan(data)
+
+    WeeklyPlan.objects.update_or_create(
+        user=user,
+        defaults={"plan_json": plan}
+    )
+
+    return plan
 
 
 @api_view(["POST"])
@@ -45,7 +201,6 @@ def assistant_chat(request):
         return Response({"detail": "GEMINI_API_KEY is not set"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-    max_out = int(os.getenv("GEMINI_MAX_OUTPUT_TOKENS", "450"))
 
     system_prompt = build_system_prompt(request.user)
 
@@ -91,5 +246,23 @@ def assistant_chat(request):
 
         return Response(
             {"detail": "Assistant internal error", "error": error_text},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def weekly_plan(request):
+    try:
+        existing = WeeklyPlan.objects.filter(user=request.user).first()
+        if existing and existing.plan_json:
+            return Response(existing.plan_json, status=status.HTTP_200_OK)
+
+        plan = _generate_weekly_plan_for_user(request.user)
+        return Response(plan, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response(
+            {"detail": "Failed to get weekly plan", "error": str(e)},
             status=status.HTTP_502_BAD_GATEWAY,
         )
