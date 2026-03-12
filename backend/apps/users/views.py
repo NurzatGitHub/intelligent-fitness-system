@@ -1,11 +1,17 @@
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, parser_classes
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import CustomUser
-from .serializers import RegisterSerializer, UserSerializer, UserUpdateSerializer
+from .serializers import (
+    RegisterSerializer,
+    UserSerializer,
+    UserUpdateSerializer,
+    AvatarUploadSerializer,
+)
 
 from django.conf import settings
 from google.oauth2 import id_token
@@ -22,6 +28,10 @@ def _tokens_for_user(user):
     }
 
 
+def _user_response(user, request):
+    return UserSerializer(user, context={"request": request}).data
+
+
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def register(request):
@@ -34,7 +44,7 @@ def register(request):
 
     return Response(
         {
-            "user": UserSerializer(user).data,
+            "user": _user_response(user, request),
             "access": tokens["access"],
             "refresh": tokens["refresh"],
         },
@@ -78,7 +88,7 @@ def login(request):
 
     return Response(
         {
-            "user": UserSerializer(user).data,
+            "user": _user_response(user, request),
             "access": tokens["access"],
             "refresh": tokens["refresh"],
         }
@@ -89,7 +99,7 @@ def login(request):
 @permission_classes([IsAuthenticated])
 def me(request):
     if request.method == "GET":
-        return Response(UserSerializer(request.user).data)
+        return Response(_user_response(request.user, request))
 
     serializer = UserUpdateSerializer(request.user, data=request.data, partial=True)
     if not serializer.is_valid():
@@ -99,7 +109,36 @@ def me(request):
 
     WeeklyPlan.objects.filter(user=user).delete()
 
-    return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
+    return Response(_user_response(user, request), status=status.HTTP_200_OK)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser])
+def upload_avatar(request):
+    serializer = AvatarUploadSerializer(request.user, data=request.data, partial=True)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    if request.user.profile_picture:
+        request.user.profile_picture.delete(save=False)
+
+    user = serializer.save()
+    return Response(_user_response(user, request), status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def my_avatar(request):
+    if not request.user.profile_picture:
+        return Response({"profile_picture_url": None}, status=status.HTTP_200_OK)
+
+    return Response(
+        {
+            "profile_picture_url": request.build_absolute_uri(request.user.profile_picture.url)
+        },
+        status=status.HTTP_200_OK,
+    )
 
 
 @api_view(["POST"])
@@ -140,7 +179,7 @@ def google_login(request):
     tokens = _tokens_for_user(user)
 
     return Response({
-        "user": UserSerializer(user).data,
+        "user": _user_response(user, request),
         "access": tokens["access"],
         "refresh": tokens["refresh"],
         "is_new_user": created,

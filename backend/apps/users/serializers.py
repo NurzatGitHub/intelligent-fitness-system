@@ -3,6 +3,8 @@ from .models import CustomUser
 
 
 class UserSerializer(serializers.ModelSerializer):
+    profile_picture_url = serializers.SerializerMethodField()
+
     class Meta:
         model = CustomUser
         fields = (
@@ -10,8 +12,18 @@ class UserSerializer(serializers.ModelSerializer):
             "age", "weight", "height", "fitness_level",
             "goal", "limitations", "frequency",
             "workout_duration", "workout_place", "endurance_level", "gender",
+            "profile_picture_url",
         )
-        read_only_fields = ("id",)
+        read_only_fields = ("id", "profile_picture_url")
+
+    def get_profile_picture_url(self, obj):
+        request = self.context.get("request")
+        if obj.profile_picture:
+            url = obj.profile_picture.url
+            if request is not None:
+                return request.build_absolute_uri(url)
+            return url
+        return None
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -61,7 +73,20 @@ class UserUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
         fields = (
+            "username",
             "age", "height", "weight",
             "fitness_level", "goal", "limitations", "frequency",
             "workout_duration", "workout_place", "endurance_level", "gender",
         )
+
+
+class AvatarUploadSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CustomUser
+        fields = ("profile_picture",)
+
+    def validate_profile_picture(self, value):
+        max_size = 5 * 1024 * 1024
+        if value.size > max_size:
+            raise serializers.ValidationError("Image is too large. Max size is 5MB.")
+        return value
