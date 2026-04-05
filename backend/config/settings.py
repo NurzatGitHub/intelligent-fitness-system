@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     "channels",
     "users",
     "assistant",
+    "exercises",
 ]
 
 MIDDLEWARE = [
