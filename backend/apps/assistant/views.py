@@ -1,6 +1,9 @@
-import json
 import os
-from datetime import datetime
+import json
+from datetime import datetime, timedelta
+
+from django.db import transaction
+from django.utils import timezone
 
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import IsAuthenticated
@@ -10,7 +13,8 @@ from rest_framework.throttling import UserRateThrottle
 
 from google import genai
 
-from .models import WeeklyPlan
+from .models import WeeklyPlan, WeeklyPlanDay, WeeklyPlanExercise
+from exercises.models import Exercise
 
 
 class AssistantChatThrottle(UserRateThrottle):
@@ -26,6 +30,81 @@ def _safe(value, default="not specified"):
         return default
     text = str(value).strip()
     return text if text else default
+
+
+def _get_current_week_start():
+    today = timezone.localdate()
+    return today - timedelta(days=today.weekday())
+
+
+def _day_key_from_index(index: int) -> str:
+    return DAY_KEYS[index]
+
+
+def _day_label_from_index(index: int) -> str:
+    return DAY_LABELS[index]
+
+
+def _serialize_plan(plan: WeeklyPlan) -> dict:
+    days_qs = (
+        plan.days.all()
+        .prefetch_related("plan_exercises__exercise")
+        .order_by("sort_order", "day_of_week", "id")
+    )
+
+    days = []
+    for day in days_qs:
+        exercises = []
+        for item in day.plan_exercises.all().order_by("sort_order", "id"):
+            ex = item.exercise
+            exercises.append(
+                {
+                    "id": ex.id,
+                    "external_id": ex.external_id,
+                    "name": ex.name,
+                    "slug": ex.slug,
+                    "description": ex.description,
+                    "target_muscle": ex.target_muscle,
+                    "equipment": ex.equipment,
+                    "difficulty": ex.difficulty,
+                    "asset_image_name": ex.asset_image_name,
+                    "asset_video_name": ex.asset_video_name,
+                    "default_sets": ex.default_sets,
+                    "default_reps": ex.default_reps,
+                    "default_duration_min": ex.default_duration_min,
+                    "plan_sets": item.sets,
+                    "plan_reps": item.reps,
+                    "plan_duration_min": item.duration_min,
+                    "plan_notes": item.notes,
+                    "sort_order": item.sort_order,
+                }
+            )
+
+        days.append(
+            {
+                "id": day.id,
+                "day_key": _day_key_from_index(day.day_of_week),
+                "label": day.label or _day_label_from_index(day.day_of_week),
+                "type": day.day_type,
+                "title": day.title,
+                "description": day.description,
+                "duration_min": day.duration_min,
+                "note": day.note,
+                "sort_order": day.sort_order,
+                "exercises": exercises,
+            }
+        )
+
+    return {
+        "id": plan.id,
+        "title": plan.title or "AI Weekly Plan",
+        "goal_summary": plan.summary or "Personalized weekly training plan",
+        "today_tip": plan.today_tip or "Focus on form and consistency",
+        "week_start_date": str(plan.week_start_date),
+        "is_active": plan.is_active,
+        "generated_at": plan.created_at.isoformat() if plan.created_at else None,
+        "days": days,
+    }
 
 
 def build_user_profile_block(user) -> str:
@@ -44,6 +123,22 @@ def build_user_profile_block(user) -> str:
     )
 
 
+def _build_profile_snapshot(user) -> dict:
+    return {
+        "age": getattr(user, "age", None),
+        "height": getattr(user, "height", None),
+        "weight": getattr(user, "weight", None),
+        "gender": getattr(user, "gender", ""),
+        "fitness_level": getattr(user, "fitness_level", ""),
+        "goal": getattr(user, "goal", ""),
+        "limitations": getattr(user, "limitations", ""),
+        "frequency": getattr(user, "frequency", ""),
+        "workout_duration": getattr(user, "workout_duration", ""),
+        "workout_place": getattr(user, "workout_place", ""),
+        "endurance_level": getattr(user, "endurance_level", ""),
+    }
+
+
 def build_system_prompt(user) -> str:
     return (
         "You are a fitness coach inside a mobile app. "
@@ -54,6 +149,51 @@ def build_system_prompt(user) -> str:
         "User profile:\n"
         f"{build_user_profile_block(user)}"
     )
+
+
+def _pick_exercises_for_day(day_type: str, title: str, user) -> list[Exercise]:
+    if day_type != "workout":
+        return []
+
+    qs = Exercise.objects.filter(is_active=True).select_related("category", "subcategory")
+
+    fitness_level = str(getattr(user, "fitness_level", "") or "").strip().lower()
+    workout_place = str(getattr(user, "workout_place", "") or "").strip().lower()
+    title_lower = (title or "").lower()
+
+    if fitness_level in ("beginner", "intermediate", "advanced"):
+        allowed_difficulties = ["beginner"]
+        if fitness_level == "intermediate":
+            allowed_difficulties = ["beginner", "intermediate"]
+        elif fitness_level == "advanced":
+            allowed_difficulties = ["beginner", "intermediate", "advanced"]
+        qs = qs.filter(difficulty__in=allowed_difficulties)
+
+    if any(x in workout_place for x in ["home", "house", "apartment"]):
+        qs = qs.exclude(equipment__iregex=r"(machine|barbell|smith|cable)")
+
+    keyword_to_category = [
+        (["chest"], "chest"),
+        (["back", "lats"], "back"),
+        (["legs", "glutes", "quads", "hamstrings", "calves"], "legs"),
+        (["abs", "core"], "abs"),
+        (["cardio", "hiit"], "cardio"),
+        (["arms", "biceps", "triceps"], "arms"),
+    ]
+
+    matched_category_slug = None
+    for keywords, category_slug in keyword_to_category:
+        if any(word in title_lower for word in keywords):
+            matched_category_slug = category_slug
+            break
+
+    if matched_category_slug:
+        filtered = list(qs.filter(category__slug=matched_category_slug).order_by("sort_order", "name")[:6])
+        if filtered:
+            return filtered[:4]
+
+    fallback = list(qs.order_by("category__sort_order", "subcategory__sort_order", "sort_order", "name")[:4])
+    return fallback
 
 
 def build_weekly_plan_prompt(user) -> str:
@@ -81,7 +221,7 @@ def build_weekly_plan_prompt(user) -> str:
         "}\n\n"
         "Rules:\n"
         "- exactly 7 days in this order: Mon, Tue, Wed, Thu, Fri, Sat, Sun\n"
-        "- type must be either workout or rest\n"
+        "- type must be either workout, rest, or recovery\n"
         "- duration_min must be an integer\n"
         "- title must be very short\n"
         "- note must be very short\n"
@@ -112,7 +252,7 @@ def _normalize_day(day: dict, index: int) -> dict:
     label = DAY_LABELS[index]
 
     day_type = str(day.get("type", "rest")).strip().lower()
-    if day_type not in ("workout", "rest"):
+    if day_type not in ("workout", "rest", "recovery"):
         day_type = "rest"
 
     title = str(day.get("title", "")).strip() or ("Workout" if day_type == "workout" else "Recovery")
@@ -158,7 +298,7 @@ def _normalize_plan(data: dict) -> dict:
     }
 
 
-def _generate_weekly_plan_for_user(user) -> dict:
+def _generate_weekly_plan_data(user) -> dict:
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not set")
@@ -174,14 +314,85 @@ def _generate_weekly_plan_for_user(user) -> dict:
     )
 
     data = _extract_json_object(response.text or "")
-    plan = _normalize_plan(data)
+    return _normalize_plan(data)
 
-    WeeklyPlan.objects.update_or_create(
+
+@transaction.atomic
+def _create_and_save_weekly_plan(user, plan_data: dict) -> WeeklyPlan:
+    week_start = _get_current_week_start()
+
+    WeeklyPlan.objects.filter(
         user=user,
-        defaults={"plan_json": plan}
+        is_active=True,
+    ).exclude(week_start_date=week_start).update(is_active=False)
+
+    WeeklyPlan.objects.filter(
+        user=user,
+        week_start_date=week_start,
+        is_active=True,
+    ).update(is_active=False)
+
+    plan = WeeklyPlan.objects.create(
+        user=user,
+        title=plan_data.get("title") or "AI Weekly Plan",
+        summary=plan_data.get("goal_summary") or "Personalized weekly training plan",
+        today_tip=plan_data.get("today_tip") or "Focus on form and consistency",
+        week_start_date=week_start,
+        is_active=True,
+        profile_snapshot=_build_profile_snapshot(user),
     )
 
+    for index, day_data in enumerate(plan_data.get("days", [])):
+        day = WeeklyPlanDay.objects.create(
+            weekly_plan=plan,
+            day_of_week=index,
+            label=day_data.get("label") or _day_label_from_index(index),
+            day_type=day_data.get("type") or "rest",
+            title=day_data.get("title") or "",
+            description="",
+            duration_min=day_data.get("duration_min") or 20,
+            note=day_data.get("note") or "",
+            sort_order=index,
+        )
+
+        selected_exercises = _pick_exercises_for_day(
+            day_type=day.day_type,
+            title=day.title,
+            user=user,
+        )
+
+        for exercise_index, exercise in enumerate(selected_exercises):
+            WeeklyPlanExercise.objects.create(
+                weekly_plan_day=day,
+                exercise=exercise,
+                sort_order=exercise_index,
+                sets=exercise.default_sets,
+                reps=exercise.default_reps,
+                duration_min=exercise.default_duration_min,
+                notes="",
+            )
+
     return plan
+
+
+def _get_or_create_current_week_plan(user) -> WeeklyPlan:
+    week_start = _get_current_week_start()
+
+    existing = (
+        WeeklyPlan.objects.filter(
+            user=user,
+            week_start_date=week_start,
+            is_active=True,
+        )
+        .prefetch_related("days__plan_exercises__exercise")
+        .order_by("-created_at")
+        .first()
+    )
+    if existing:
+        return existing
+
+    plan_data = _generate_weekly_plan_data(user)
+    return _create_and_save_weekly_plan(user, plan_data)
 
 
 @api_view(["POST"])
@@ -254,15 +465,27 @@ def assistant_chat(request):
 @permission_classes([IsAuthenticated])
 def weekly_plan(request):
     try:
-        existing = WeeklyPlan.objects.filter(user=request.user).first()
-        if existing and existing.plan_json:
-            return Response(existing.plan_json, status=status.HTTP_200_OK)
-
-        plan = _generate_weekly_plan_for_user(request.user)
-        return Response(plan, status=status.HTTP_200_OK)
+        plan = _get_or_create_current_week_plan(request.user)
+        return Response(_serialize_plan(plan), status=status.HTTP_200_OK)
 
     except Exception as e:
         return Response(
             {"detail": "Failed to get weekly plan", "error": str(e)},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def regenerate_weekly_plan(request):
+    try:
+        WeeklyPlan.objects.filter(user=request.user, is_active=True).update(is_active=False)
+        plan_data = _generate_weekly_plan_data(request.user)
+        plan = _create_and_save_weekly_plan(request.user, plan_data)
+        return Response(_serialize_plan(plan), status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response(
+            {"detail": "Failed to regenerate weekly plan", "error": str(e)},
             status=status.HTTP_502_BAD_GATEWAY,
         )
