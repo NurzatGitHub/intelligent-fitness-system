@@ -18,6 +18,7 @@ urlpatterns = [
     path("api/users/", include("users.urls")),
     path("api/assistant/", include("assistant.urls")),
     path("api/exercises/", include("exercises.urls")),
+    path("api/workouts/", include("workouts.urls")),
     path("swagger/", schema_view.with_ui("swagger", cache_timeout=0), name="swagger"),
     re_path(r"^media/(?P<path>.*)$", serve, {"document_root": settings.MEDIA_ROOT}),
 ]
