@@ -1,5 +1,6 @@
 import os
 import json
+from collections import defaultdict
 from datetime import datetime, timedelta
 
 from django.db import transaction
@@ -15,6 +16,7 @@ from google import genai
 
 from .models import WeeklyPlan, WeeklyPlanDay, WeeklyPlanExercise
 from exercises.models import Exercise
+from workouts.models import WorkoutSession
 
 
 class AssistantChatThrottle(UserRateThrottle):
@@ -45,7 +47,34 @@ def _day_label_from_index(index: int) -> str:
     return DAY_LABELS[index]
 
 
-def _serialize_plan(plan: WeeklyPlan) -> dict:
+def _serialize_plan(plan: WeeklyPlan, user) -> dict:
+    sessions = (
+        WorkoutSession.objects.filter(
+            user=user,
+            status="completed",
+            weekly_plan_day__weekly_plan=plan,
+        )
+        .prefetch_related("exercises__exercise")
+        .order_by("-finished_at", "-created_at")
+    )
+
+    completed_day_sessions = set()
+    completed_slugs_by_day = defaultdict(set)
+
+    for session in sessions:
+        day_id = session.weekly_plan_day_id
+        if not day_id:
+            continue
+
+        completed_day_sessions.add(day_id)
+
+        for ex_item in session.exercises.all():
+            slug = (ex_item.exercise_slug or "").strip()
+            if not slug and ex_item.exercise:
+                slug = ex_item.exercise.slug
+            if slug:
+                completed_slugs_by_day[day_id].add(slug)
+
     days_qs = (
         plan.days.all()
         .prefetch_related("plan_exercises__exercise")
@@ -55,8 +84,17 @@ def _serialize_plan(plan: WeeklyPlan) -> dict:
     days = []
     for day in days_qs:
         exercises = []
+        total_exercise_count = 0
+        completed_exercise_count = 0
+
         for item in day.plan_exercises.all().order_by("sort_order", "id"):
             ex = item.exercise
+            is_completed = ex.slug in completed_slugs_by_day[day.id]
+
+            total_exercise_count += 1
+            if is_completed:
+                completed_exercise_count += 1
+
             exercises.append(
                 {
                     "id": ex.id,
@@ -77,8 +115,14 @@ def _serialize_plan(plan: WeeklyPlan) -> dict:
                     "plan_duration_min": item.duration_min,
                     "plan_notes": item.notes,
                     "sort_order": item.sort_order,
+                    "is_completed": is_completed,
                 }
             )
+
+        if total_exercise_count > 0:
+            day_is_completed = completed_exercise_count == total_exercise_count
+        else:
+            day_is_completed = day.id in completed_day_sessions
 
         days.append(
             {
@@ -91,6 +135,9 @@ def _serialize_plan(plan: WeeklyPlan) -> dict:
                 "duration_min": day.duration_min,
                 "note": day.note,
                 "sort_order": day.sort_order,
+                "is_completed": day_is_completed,
+                "completed_exercise_count": completed_exercise_count,
+                "total_exercise_count": total_exercise_count,
                 "exercises": exercises,
             }
         )
@@ -151,7 +198,7 @@ def build_system_prompt(user) -> str:
     )
 
 
-def _pick_exercises_for_day(day_type: str, title: str, user) -> list[Exercise]:
+def _pick_exercises_for_day(day_type: str, title: str, user):
     if day_type != "workout":
         return []
 
@@ -192,8 +239,7 @@ def _pick_exercises_for_day(day_type: str, title: str, user) -> list[Exercise]:
         if filtered:
             return filtered[:4]
 
-    fallback = list(qs.order_by("category__sort_order", "subcategory__sort_order", "sort_order", "name")[:4])
-    return fallback
+    return list(qs.order_by("category__sort_order", "subcategory__sort_order", "sort_order", "name")[:4])
 
 
 def build_weekly_plan_prompt(user) -> str:
@@ -412,12 +458,10 @@ def assistant_chat(request):
         return Response({"detail": "GEMINI_API_KEY is not set"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-
     system_prompt = build_system_prompt(request.user)
 
     try:
         client = genai.Client(api_key=api_key)
-
         full_prompt = f"{system_prompt}\n\nUser message:\n{message}"
 
         response = client.models.generate_content(
@@ -466,7 +510,7 @@ def assistant_chat(request):
 def weekly_plan(request):
     try:
         plan = _get_or_create_current_week_plan(request.user)
-        return Response(_serialize_plan(plan), status=status.HTTP_200_OK)
+        return Response(_serialize_plan(plan, request.user), status=status.HTTP_200_OK)
 
     except Exception as e:
         return Response(
@@ -482,7 +526,7 @@ def regenerate_weekly_plan(request):
         WeeklyPlan.objects.filter(user=request.user, is_active=True).update(is_active=False)
         plan_data = _generate_weekly_plan_data(request.user)
         plan = _create_and_save_weekly_plan(request.user, plan_data)
-        return Response(_serialize_plan(plan), status=status.HTTP_200_OK)
+        return Response(_serialize_plan(plan, request.user), status=status.HTTP_200_OK)
 
     except Exception as e:
         return Response(
